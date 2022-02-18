@@ -1,8 +1,6 @@
 <?php
 error_reporting(0);
 
-
-
 class Api_Model extends CI_Model
 {
     public function __construct()
@@ -457,7 +455,7 @@ class Api_Model extends CI_Model
 
     public function getRetGpLine($data)
     {
-        $get = "SELECT Sno AS sNo,Description AS description,UOM AS unit,Quantity AS quantity FROM ret_gp_line WHERE  RGP_Id=$data->rgpId";
+        $get = "SELECT Sno AS sNo,Description AS description,UOM AS unit,Quantity AS quantity FROM ret_gp_line WHERE RGP_Id=$data->rgpId";
         $query = $this->db->query($get);
         $result = $query->result_array();
 
@@ -470,7 +468,11 @@ class Api_Model extends CI_Model
 		FROM ret_gp_line AS line
 		LEFT JOIN item_ret_entry AS returnable ON (line.Sno=returnable.Sno)
 		LEFT JOIN ret_gp_header AS header ON (line.RGP_Id=header.RGP_Id)
-		WHERE header.Department_Code=$d->depCode AND header.Approval='Y' GROUP BY line.Sno;";
+		WHERE header.Department_Code=$d->depCode 
+		AND header.Approval='Y' 
+		AND header.Gate_Pass='Returnable' 
+		AND header.`Status`='A' 
+		GROUP BY line.Sno HAVING st <>0;";
         $query = $this->db->query($get);
         $result = $query->result_array();
         return $result;
@@ -947,11 +949,7 @@ class Api_Model extends CI_Model
         $current_Stock = array();
         for ($i = 0; $i < count($data->grnItems); $i++) {
             $itemId = $data->grnItems[$i]->itemId;
-            $currentStock = "SELECT Additions AS additions,Item_Id AS itemIdCurrent,
-			Batch_No as batchNo,
-			Expiry_Date AS expiryDate,Department_Code FROM current_stock 
-			WHERE Item_Id='" . $itemId . "'
-			AND Department_Code=$data->departmentCode;";
+            $currentStock = "SELECT Additions AS additions,Item_Id AS itemIdCurrent,Batch_No as batchNo,Expiry_Date AS expiryDate FROM current_stock WHERE Item_Id='" . $itemId . "';";
             array_push($current_Stock,  $currentStock);
         }
 
@@ -985,9 +983,7 @@ class Api_Model extends CI_Model
                 }
             }
             if ($insert_No == 0) {
-                $updateAdd = "UPDATE current_stock SET Additions='" . $totalRes[$i]['additions'] . "' + '" . $data->grnItems[$i]->quantity . "'
-				 WHERE Item_Id='" . $data->grnItems[$i]->itemId . "'
-				 AND Department_Code=$data->departmentCode;";
+                $updateAdd = "UPDATE current_stock SET Additions='" . $totalRes[$i]['additions'] . "' + '" . $data->grnItems[$i]->quantity . "' WHERE Item_Id='" . $data->grnItems[$i]->itemId . "';";
                 $updatequery = $this->db->query($updateAdd);
                 if ($updatequery == 1) {
                     $result = true;
@@ -1033,7 +1029,7 @@ class Api_Model extends CI_Model
         return $result;
     }
 
-    public function selectCurrent()
+    public function selectCurrent($data)
     {
 
         $select = "SELECT current_stock.Stock_Id AS stockId,
@@ -1052,7 +1048,7 @@ class Api_Model extends CI_Model
 		item_master.Item_Code AS itemCode,item_master.Item_Description AS itemDescription
 		FROM current_stock 
 		INNER JOIN item_master ON  item_master.Item_Id=current_stock.Item_Id
-		WHERE current_stock.Status='A' ;";
+		WHERE current_stock.Status='A' AND Department_Code=$data->depCode;";
         $query = $this->db->query($select);
         $result = $query->result_array();
         return $result;
@@ -1081,14 +1077,11 @@ class Api_Model extends CI_Model
 			   $data->quantity,
 			  
 			   'A') ;");
-        $currentStock = "SELECT Additions AS additions,Deletions AS deletions,Item_Id AS itemId,Batch_No as batchNo,Expiry_Date AS expiryDate FROM current_stock WHERE Item_Id=$data->itemId;";
+        $currentStock = "SELECT Deletions AS deletions,Item_Id AS itemId,Batch_No as batchNo,Expiry_Date AS expiryDate FROM current_stock WHERE Item_Id=$data->itemId;";
         $curQuery = $this->db->query($currentStock);
         $result = $curQuery->result_array();
         if ($data->itemId == $result[0]['itemId']) {
-            $updatequery = $this->db->query("UPDATE current_stock 
-			SET 
-			Additions='" . $result[0]['additions'] . "'-'" . $data->quantity . "',
-			Deletions = '" . $data->quantity . "' + '" . $result[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "';");
+            $updatequery = $this->db->query("UPDATE current_stock SET Deletions = '" . $data->quantity . "' + '" . $result[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "';");
         }
 
         return true;
@@ -1132,9 +1125,7 @@ class Api_Model extends CI_Model
 
 
         if ($data->itemId == $currentStockFrom[0]['itemId']) {
-            $updateFromQuery = $this->db->query("UPDATE current_stock
-			 SET Additions='" . $currentStockFrom[0]['additions'] . "'-'" . $data->quantity . "',
-			  Deletions = '" . $data->quantity . "' + '" . $currentStockFrom[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "' && Department_Code=$data->fromDeptCode ;");
+            $updateFromQuery = $this->db->query("UPDATE current_stock SET Deletions = '" . $data->quantity . "' + '" . $currentStockFrom[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "' && Department_Code=$data->fromDeptCode ;");
 
             if (empty($currentStockTo)) {
                 $insertStock = $this->db->query("INSERT INTO current_stock(
@@ -1444,7 +1435,7 @@ class Api_Model extends CI_Model
 			Additions AS additions,
 			Deletions AS deletions,
 			Closing AS closing,
-			department.Department_Name AS depName,item_master.Item_Code AS itemCode,
+			department.Department_Name AS depName,
 			item_master.Item_Description AS itemDesc
 			FROM current_stock
 			INNER JOIN department ON current_stock.Department_Code=department.Department_Code
