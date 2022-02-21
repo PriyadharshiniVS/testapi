@@ -1,6 +1,8 @@
 <?php
 error_reporting(0);
 
+
+
 class Api_Model extends CI_Model
 {
     public function __construct()
@@ -471,7 +473,7 @@ class Api_Model extends CI_Model
 		WHERE header.Department_Code=$d->depCode 
 		AND header.Approval='Y' 
 		AND header.Gate_Pass='Returnable' 
-		AND header.`Status`='A' 
+		AND header.Status='A' 
 		GROUP BY line.Sno HAVING st <>0;";
         $query = $this->db->query($get);
         $result = $query->result_array();
@@ -921,7 +923,6 @@ class Api_Model extends CI_Model
 						Quantity,
 						Status,
 						Expiry_Date_Check)
-
 					VALUES(
 							 $grnId,
 							 $itemId,
@@ -1048,7 +1049,7 @@ class Api_Model extends CI_Model
 		item_master.Item_Code AS itemCode,item_master.Item_Description AS itemDescription
 		FROM current_stock 
 		INNER JOIN item_master ON  item_master.Item_Id=current_stock.Item_Id
-		WHERE current_stock.Status='A' AND Department_Code=$data->depCode;";
+		WHERE current_stock.Status='A' ;";
         $query = $this->db->query($select);
         $result = $query->result_array();
         return $result;
@@ -1077,11 +1078,14 @@ class Api_Model extends CI_Model
 			   $data->quantity,
 			  
 			   'A') ;");
-        $currentStock = "SELECT Deletions AS deletions,Item_Id AS itemId,Batch_No as batchNo,Expiry_Date AS expiryDate FROM current_stock WHERE Item_Id=$data->itemId;";
+        $currentStock = "SELECT Additions AS additions,Deletions AS deletions,Item_Id AS itemId,Batch_No as batchNo,Expiry_Date AS expiryDate FROM current_stock WHERE Item_Id=$data->itemId;";
         $curQuery = $this->db->query($currentStock);
         $result = $curQuery->result_array();
         if ($data->itemId == $result[0]['itemId']) {
-            $updatequery = $this->db->query("UPDATE current_stock SET Deletions = '" . $data->quantity . "' + '" . $result[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "';");
+            $updatequery = $this->db->query("UPDATE current_stock 
+			SET 
+			Additions='" . $result[0]['additions'] . "'-'" . $data->quantity . "',
+			Deletions = '" . $data->quantity . "' + '" . $result[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "';");
         }
 
         return true;
@@ -1125,7 +1129,9 @@ class Api_Model extends CI_Model
 
 
         if ($data->itemId == $currentStockFrom[0]['itemId']) {
-            $updateFromQuery = $this->db->query("UPDATE current_stock SET Deletions = '" . $data->quantity . "' + '" . $currentStockFrom[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "' && Department_Code=$data->fromDeptCode ;");
+            $updateFromQuery = $this->db->query("UPDATE current_stock
+			 SET Additions='" . $currentStockFrom[0]['additions'] . "'-'" . $data->quantity . "',
+			  Deletions = '" . $data->quantity . "' + '" . $currentStockFrom[0]['deletions'] . "' WHERE Item_Id='" . $data->itemId . "' && Department_Code=$data->fromDeptCode ;");
 
             if (empty($currentStockTo)) {
                 $insertStock = $this->db->query("INSERT INTO current_stock(
@@ -1342,6 +1348,8 @@ class Api_Model extends CI_Model
         $finalResult = ($noOfPage - 1) * $resultPerPage;
         $dep = $this->db->query("SELECT Department_Code AS departmentCode,Department_Name AS departmentName FROM department ")->result_array();
 
+        $checkDep = $data->depCode != '4' ? sprintf("AND transfers.From_Dept_Code = %u", $data->depCode) : ' ';
+
         $select = "SELECT transfers.Trans_Id AS transId,
 		transfers.Item_Id AS itemId,
 		transfers.Quantity AS quantity,
@@ -1355,7 +1363,7 @@ class Api_Model extends CI_Model
 		transfers.Status AS status,item_master.Item_Description AS itemDescription
 		FROM transfers
 		INNER JOIN item_master ON item_master.Item_Id=transfers.Item_Id
-		WHERE transfers.Status='A' AND transfers.From_Dept_Code=$data->depCode ORDER BY transId  DESC LIMIT $finalResult ,$resultPerPage;";
+		WHERE transfers.Status='A' $checkDep ORDER BY transId  DESC LIMIT $finalResult ,$resultPerPage;";
 
         $query = $this->db->query($select);
         $res = $query->result_array();
@@ -1434,13 +1442,13 @@ class Api_Model extends CI_Model
 			Opening AS opening,
 			Additions AS additions,
 			Deletions AS deletions,
-			Closing AS closing,
-			department.Department_Name AS depName,
+			((opening+additions)-deletions) AS closing,
+			department.Department_Name AS depName,item_master.Item_Code AS itemCode,
 			item_master.Item_Description AS itemDesc
 			FROM current_stock
 			INNER JOIN department ON current_stock.Department_Code=department.Department_Code
 			INNER JOIN item_master ON current_stock.Item_Id = item_master.Item_Id
-			WHERE current_stock.Status ='A';"
+			WHERE current_stock.Status ='A' ORDER BY stockId DESC;"
         )->result_array();
 
         return $selectStock;
